@@ -1,13 +1,16 @@
 from vkbottle.bot import Bot, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text, Callback
+from vkbottle.bot import BotLabeler
+from vkbottle import GroupEventType, GroupTypes
 import random
 import json
 import os
 
 # СЮДА ВСТАВЬ СВОЙ ТОКЕН ОТ ГРУППЫ ВК
-TOKEN = "vk1.a.vk1.a.13FDlqYTR1PjewPyc37RHas8POEvriWC5v-yDvx_TlIn-0WNthUoe5bn8g5I5UjLnKICAwqgP_hlYYx5rAgYWp2cUBQG4y48lvWMZosQ8LEZWBLMzOMEMrFE4c1UfRxd2DGitSda5GWrpFGP16UErog0E-eeK5IzhUi7GCnopuOSR0GdwnjbmpgfvP0HaRhRPRQJ545b-yIS960hP0R3Og"
+TOKEN = "vk1.a.13FDlqYTR1PjewPyc37RHas8POEvriWC5v-yDvx_TlIn-0WNthUoe5bn8g5I5UjLnKICAwqgP_hlYYx5rAgYWp2cUBQG4y48lvWMZosQ8LEZWBLMzOMEMrFE4c1UfRxd2DGitSda5GWrpFGP16UErog0E-eeK5IzhUi7GCnopuOSR0GdwnjbmpgfvP0HaRhRPRQJ545b-yIS960hP0R3Og"
 
 bot = Bot(token=TOKEN)
+labeler = BotLabeler()
 
 # База данных (простой JSON файл)
 DB_FILE = "users.json"
@@ -75,7 +78,7 @@ def shop_inline_keyboard():
     return kb.get_json()
 
 # Команда /start или "Начать"
-@bot.on.message(text=["Начать", "начать", "/start"])
+@bot.on.message(text=["Начать", "начать", "/start", "привет", "Привет"])
 async def start_handler(message: Message):
     user_id = message.from_id
     is_new = register_user(user_id)
@@ -93,12 +96,12 @@ async def start_handler(message: Message):
         )
     else:
         await message.answer(
-            f"С возвращением, {users[str(user_id)].get('name', 'путник')}!",
+            f"С возвращением в игру! Выбери действие:",
             keyboard=main_keyboard()
         )
 
 # Профиль
-@bot.on.message(text=["👤 Профиль", "!профиль", "/профиль"])
+@bot.on.message(text=["👤 Профиль", "!профиль", "/профиль", "профиль"])
 async def profile_handler(message: Message):
     user_id = str(message.from_id)
     if user_id not in users:
@@ -116,7 +119,7 @@ async def profile_handler(message: Message):
     )
 
 # Работать (с инлайн-кнопками)
-@bot.on.message(text=["💰 Работать", "!работать", "/работать"])
+@bot.on.message(text=["💰 Работать", "!работать", "/работать", "работать"])
 async def work_handler(message: Message):
     await message.answer(
         "💼 Выбери работу:\n\n"
@@ -126,9 +129,9 @@ async def work_handler(message: Message):
         keyboard=work_inline_keyboard()
     )
 
-# Обработка нажатий на инлайн-кнопки работы
-@bot.on.raw_event("message_event", dataclass=message)
-async def work_callback_handler(event):
+# Обработка нажатий на инлайн-кнопки (ИСПРАВЛЕННЫЙ ВАРИАНТ)
+@bot.on.raw_event(GroupEventType.MESSAGE_EVENT, GroupTypes.MessageEvent)
+async def callback_handler(event: GroupTypes.MessageEvent):
     user_id = str(event.object.user_id)
     payload = event.object.payload
     
@@ -136,143 +139,44 @@ async def work_callback_handler(event):
         register_user(int(user_id))
     
     user = users[user_id]
+    action = payload.get("action", "")
     
-    if user['energy'] < 10:
-        await bot.api.messages.send_message_event_answer(
-            event_id=event.object.event_id,
-            user_id=event.object.user_id,
-            peer_id=event.object.peer_id,
-            event_data=json.dumps({"type": "show_snackbar", "text": "⚠️ Недостаточно энергии!"})
-        )
-        return
-    
-    rewards = {
-        "work_miner": 500,
-        "work_taxi": 300,
-        "work_cook": 200
-    }
-    
-    work_names = {
-        "work_miner": "Шахтёр",
-        "work_taxi": "Таксист",
-        "work_cook": "Повар"
-    }
-    
-    action = payload.get("action")
-    if action in rewards:
-        reward = rewards[action]
-        user['money'] += reward
-        user['energy'] -= 10
-        user['exp'] += random.randint(5, 15)
+    # === РАБОТЫ ===
+    if action.startswith("work_"):
+        if user['energy'] < 10:
+            await bot.api.messages.send_message_event_answer(
+                event_id=event.object.event_id,
+                user_id=event.object.user_id,
+                peer_id=event.object.peer_id,
+                event_data=json.dumps({"type": "show_snackbar", "text": "⚠️ Недостаточно энергии!"})
+            )
+            return
         
-        # Повышение уровня
-        if user['exp'] >= user['level'] * 100:
-            user['level'] += 1
-            user['exp'] = 0
-            level_up_text = f"\n🎉 Поздравляю! Новый уровень: {user['level']}"
-        else:
+        rewards = {
+            "work_miner": 500,
+            "work_taxi": 300,
+            "work_cook": 200
+        }
+        
+        work_names = {
+            "work_miner": "Шахтёр",
+            "work_taxi": "Таксист",
+            "work_cook": "Повар"
+        }
+        
+        if action in rewards:
+            reward = rewards[action]
+            user['money'] += reward
+            user['energy'] -= 10
+            user['exp'] += random.randint(5, 15)
+            
+            # Повышение уровня
             level_up_text = ""
-        
-        save_db(users)
-        
-        await bot.api.messages.send_message_event_answer(
-            event_id=event.object.event_id,
-            user_id=event.object.user_id,
-            peer_id=event.object.peer_id,
-            event_data=json.dumps({
-                "type": "show_snackbar",
-                "text": f"✅ Работа '{work_names[action]}' завершена! +{reward}₽"
-            })
-        )
-        
-        await bot.api.messages.send(
-            user_id=event.object.user_id,
-            random_id=0,
-            message=f"💼 Ты поработал на должности '{work_names[action]}'\n"
-                   f"💰 Заработано: +{reward}₽\n"
-                   f"⚡ Энергия: {user['energy']}/100{level_up_text}"
-        )
-
-# Казино
-@bot.on.message(text=["🎰 Казино", "!казино <amount>", "/казино <amount>"])
-async def casino_handler(message: Message, amount=None):
-    user_id = str(message.from_id)
-    if user_id not in users:
-        register_user(message.from_id)
-    
-    user = users[user_id]
-    
-    if not amount:
-        await message.answer(
-            f"🎰 Казино!\n\n"
-            f"Используй: !казино [сумма]\n"
-            f"Пример: !казино 100\n\n"
-            f"💰 Твой баланс: {user['money']}₽"
-        )
-        return
-    
-    try:
-        bet = int(amount)
-    except:
-        await message.answer("⚠️ Укажи корректную сумму!")
-        return
-    
-    if bet > user['money']:
-        await message.answer(f"⚠️ Недостаточно денег! У тебя {user['money']}₽")
-        return
-    
-    if bet <= 0:
-        await message.answer("⚠️ Сумма должна быть больше 0!")
-        return
-    
-    # Игра
-    win_chance = random.randint(1, 100)
-    
-    if win_chance <= 45:  # 45% шанс выигрыша
-        win_amount = bet * 2
-        user['money'] += bet
-        result = f"🎉 Победа! +{bet}₽\n💰 Баланс: {user['money']}₽"
-    else:
-        user['money'] -= bet
-        result = f"😢 Проигрыш! -{bet}₽\n💰 Баланс: {user['money']}₽"
-    
-    save_db(users)
-    await message.answer(f"🎰 Казино\n\n{result}")
-
-# Магазин
-@bot.on.message(text=["🏪 Магазин", "!магазин", "/магазин"])
-async def shop_handler(message: Message):
-    await message.answer(
-        "🏪 Магазин:\n\n"
-        "⚔️ Меч — 500₽ (урон +20)\n"
-        "🛡️ Щит — 300₽ (защита +15)\n"
-        "💊 Аптечка — 100₽ (+50 HP)",
-        keyboard=shop_inline_keyboard()
-    )
-
-# Обработка покупок
-@bot.on.raw_event("message_event", dataclass=message)
-async def shop_callback_handler(event):
-    user_id = str(event.object.user_id)
-    payload = event.object.payload
-    
-    if user_id not in users:
-        register_user(int(user_id))
-    
-    user = users[user_id]
-    
-    items = {
-        "buy_sword": {"name": "⚔️ Меч", "price": 500},
-        "buy_shield": {"name": "🛡️ Щит", "price": 300},
-        "buy_heal": {"name": "💊 Аптечка", "price": 100}
-    }
-    
-    action = payload.get("action")
-    if action in items:
-        item = items[action]
-        if user['money'] >= item['price']:
-            user['money'] -= item['price']
-            user['inventory'].append(item['name'])
+            if user['exp'] >= user['level'] * 100:
+                user['level'] += 1
+                user['exp'] = 0
+                level_up_text = f"\n🎉 Новый уровень: {user['level']}"
+            
             save_db(users)
             
             await bot.api.messages.send_message_event_answer(
@@ -281,30 +185,124 @@ async def shop_callback_handler(event):
                 peer_id=event.object.peer_id,
                 event_data=json.dumps({
                     "type": "show_snackbar",
-                    "text": f"✅ Куплено: {item['name']}"
+                    "text": f"✅ +{reward}₽ за работу!"
                 })
             )
             
             await bot.api.messages.send(
                 user_id=event.object.user_id,
                 random_id=0,
-                message=f"🛒 Покупка завершена!\n"
-                       f"{item['name']} добавлен в инвентарь\n"
-                       f"💰 Баланс: {user['money']}₽"
+                message=f"💼 Работа: {work_names[action]}\n"
+                       f"💰 +{reward}₽\n"
+                       f"⚡ Энергия: {user['energy']}/100{level_up_text}",
+                keyboard=main_keyboard()
             )
-        else:
-            await bot.api.messages.send_message_event_answer(
-                event_id=event.object.event_id,
-                user_id=event.object.user_id,
-                peer_id=event.object.peer_id,
-                event_data=json.dumps({
-                    "type": "show_snackbar",
-                    "text": f"⚠️ Недостаточно денег! Нужно {item['price']}₽"
-                })
-            )
+    
+    # === МАГАЗИН ===
+    elif action.startswith("buy_"):
+        items = {
+            "buy_sword": {"name": "⚔️ Меч", "price": 500},
+            "buy_shield": {"name": "🛡️ Щит", "price": 300},
+            "buy_heal": {"name": "💊 Аптечка", "price": 100}
+        }
+        
+        if action in items:
+            item = items[action]
+            
+            if user['money'] >= item['price']:
+                user['money'] -= item['price']
+                user['inventory'].append(item['name'])
+                save_db(users)
+                
+                await bot.api.messages.send_message_event_answer(
+                    event_id=event.object.event_id,
+                    user_id=event.object.user_id,
+                    peer_id=event.object.peer_id,
+                    event_data=json.dumps({
+                        "type": "show_snackbar",
+                        "text": f"✅ Куплено: {item['name']}"
+                    })
+                )
+                
+                await bot.api.messages.send(
+                    user_id=event.object.user_id,
+                    random_id=0,
+                    message=f"🛒 Куплено: {item['name']}\n💰 Баланс: {user['money']}₽",
+                    keyboard=main_keyboard()
+                )
+            else:
+                await bot.api.messages.send_message_event_answer(
+                    event_id=event.object.event_id,
+                    user_id=event.object.user_id,
+                    peer_id=event.object.peer_id,
+                    event_data=json.dumps({
+                        "type": "show_snackbar",
+                        "text": f"⚠️ Нужно {item['price']}₽"
+                    })
+                )
+
+# Казино (текстовая команда с суммой)
+@bot.on.message(text=["🎰 Казино", "!казино", "/казино", "казино"])
+async def casino_info_handler(message: Message):
+    user_id = str(message.from_id)
+    if user_id not in users:
+        register_user(message.from_id)
+    
+    user = users[user_id]
+    await message.answer(
+        f"🎰 Казино!\n\n"
+        f"Напиши: !казино 100\n"
+        f"(где 100 - твоя ставка)\n\n"
+        f"💰 Твой баланс: {user['money']}₽"
+    )
+
+# Казино с суммой
+@bot.on.message(text=["!казино <amount>", "/казино <amount>"])
+async def casino_handler(message: Message, amount: str = None):
+    user_id = str(message.from_id)
+    if user_id not in users:
+        register_user(message.from_id)
+    
+    user = users[user_id]
+    
+    try:
+        bet = int(amount)
+    except:
+        await message.answer("⚠️ Укажи сумму! Пример: !казино 100")
+        return
+    
+    if bet <= 0:
+        await message.answer("⚠️ Сумма должна быть больше 0!")
+        return
+    
+    if bet > user['money']:
+        await message.answer(f"⚠️ У тебя только {user['money']}₽")
+        return
+    
+    # Игра 45% шанс
+    if random.randint(1, 100) <= 45:
+        user['money'] += bet
+        result = f"🎉 Победа! +{bet}₽"
+    else:
+        user['money'] -= bet
+        result = f"😢 Проигрыш! -{bet}₽"
+    
+    save_db(users)
+    await message.answer(f"🎰 {result}\n💰 Баланс: {user['money']}₽")
+
+# Магазин
+@bot.on.message(text=["🏪 Магазин", "!магазин", "/магазин", "магазин"])
+async def shop_handler(message: Message):
+    await message.answer(
+        "🏪 Магазин:\n\n"
+        "⚔️ Меч — 500₽\n"
+        "🛡️ Щит — 300₽\n"
+        "💊 Аптечка — 100₽",
+        keyboard=shop_inline_keyboard()
+    )
 
 # Инвентарь
-@bot.on.message(text=["🎒 Инвентарь", "!инвентарь", "/инвентарь"])
+@bot.on.message(text=["🎒 Инвентарь", "!инвентарь", "/инвентарь", "инвентарь"])
 async def inventory_handler(message: Message):
     user_id = str(message.from_id)
     if user_id not in users:
@@ -312,17 +310,21 @@ async def inventory_handler(message: Message):
     
     user = users[user_id]
     if not user['inventory']:
-        await message.answer("🎒 Твой инвентарь пуст!")
+        await message.answer("🎒 Инвентарь пуст!")
     else:
         items = "\n".join(user['inventory'])
-        await message.answer(f"🎒 Твой инвентарь:\n\n{items}")
+        await message.answer(f"🎒 Инвентарь:\n\n{items}")
 
 # Топ игроков
-@bot.on.message(text=["📊 Топ", "!топ", "/топ"])
+@bot.on.message(text=["📊 Топ", "!топ", "/топ", "топ"])
 async def top_handler(message: Message):
+    if not users:
+        await message.answer("📊 Пока нет игроков!")
+        return
+    
     sorted_users = sorted(users.items(), key=lambda x: x[1]['money'], reverse=True)[:10]
     
-    top_text = "🏆 Топ-10 богатейших игроков:\n\n"
+    top_text = "🏆 Топ-10 богачей:\n\n"
     for i, (uid, data) in enumerate(sorted_users, 1):
         top_text += f"{i}. ID{uid} — {data['money']}₽\n"
     
